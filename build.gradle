@@ -1,0 +1,31 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.4.21'
+    id "com.github.johnrengelman.shadow" version "7.1.2" // fatjar
+}
+
+group 'br.comhrom'
+version '1.0'
+
+sourceCompatibility = 11
+targetCompatibility = 11
+
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-reflect"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation 'org.jsoup:jsoup:1.14.3'
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.9.8'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.9.8'
+}
+
+jar {
+    manifest {
+        attributes(
+                'Main-Class': 'br.com.hrom.nmascrap.ApplicationKt'
+        )
+    }
+}
