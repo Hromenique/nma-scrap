@@ -26,12 +26,12 @@ data class VideoReference(
 data class Source(
     @JsonProperty("label")
     @JsonDeserialize(using = ResolutionDeserializer::class)
-    val resolution: Resolution,
+    val resolution: Resolution = Resolution.UNKNOWN,
     @JsonProperty("file")
     val url: URL,
     val type: String
 ) {
-    val extension: String = type.substring(type.lastIndexOf('/') + 1, type.length)
+    val extension: String? = url.fileExtension()    //type.substring(type.lastIndexOf('/') + 1, type.length)
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -39,7 +39,9 @@ data class Track(
     @JsonProperty("file")
     val url: URL,
     val kind: String
-)
+){
+    val extension: String? = url.fileExtension()
+}
 
 enum class Resolution {
     FULL_HD, HD, SD, UNKNOWN;

@@ -27,7 +27,7 @@ class NMAScraper(
         println("Start NMA scrap")
 
         val session = doLogin()
-        val lessonPage = getLessonPage(session)
+        val lessonPage = getLessonPage(session, lessonUrl)
 
         val courseName = getCourseName(lessonPage)
         val lessonName = getLessonName(lessonPage)
@@ -63,7 +63,7 @@ class NMAScraper(
         return session
     }
 
-    private fun getLessonPage(session: Connection) = session.url(lessonUrl).get()
+    private fun getLessonPage(session: Connection, lessonUrl: URL) = session.url(lessonUrl).get()
 
     private fun getCourseName(lessonPage: Document): String {
         return lessonPage
@@ -255,7 +255,9 @@ class NMAScraper(
 
             try {
                 videoSource.url.openStreamToResource().use { input ->
-                    Files.copy(input, File(destFolder, "$name.mp4").toPath(), REPLACE_EXISTING)
+                    Files.copy(input,
+                        File(destFolder, "$name.${videoSource.extension ?: "mp4"}").toPath(),
+                        REPLACE_EXISTING)
                     println("${videoSource.url} download done")
                 }
             } catch (ex: Exception) {
@@ -266,7 +268,9 @@ class NMAScraper(
             maybeTrack?.let { track ->
                 try {
                     track.url.openStreamToResource().use { input ->
-                        Files.copy(input, File(destFolder, "$name.vtt").toPath(), REPLACE_EXISTING)
+                        Files.copy(input,
+                            File(destFolder, "$name.${track.extension ?: "vtt"}").toPath(),
+                            REPLACE_EXISTING)
                         println("${track.url} download done")
                     }
                 } catch (ex: Exception) {
