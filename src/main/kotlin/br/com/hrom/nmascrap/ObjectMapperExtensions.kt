@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jdk.nashorn.api.scripting.ScriptObjectMirror
 import javax.script.ScriptEngineManager
 
+private val jsEngine = ScriptEngineManager().getEngineByName("nashorn")
+
 fun <T> ObjectMapper.readJSObject(rawJsObject: String, type: TypeReference<T>): T {
-    val scriptEngineManager = ScriptEngineManager()
-    val jsEngine = scriptEngineManager.getEngineByName("nashorn")
     val scriptObject = jsEngine.eval(rawJsObject)
     val obj = convertToObject(scriptObject)
     val json = this.writeValueAsString(obj)

@@ -6,45 +6,48 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Connection
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
-import javax.imageio.ImageIO
 
 class NMAScraper(
     private val userName: String,
     private val password: String,
-    private val lessonUrl: URL,
+    private val courseUrl: URL,
     private val preferredResolution: Resolution,
     private val destinationFolder: File,
     private val objectMapper: ObjectMapper = jacksonObjectMapper(),
 ) {
+    private val log = LoggerFactory.getLogger("Scraper")
 
     fun doScrap() {
-        println("Start NMA scrap")
+        log.info("========== Start NMA scrap ==========")
+        log.info("Indexing resources...")
 
         val session = doLogin()
-        val lessonPage = getLessonPage(session, lessonUrl)
 
-        val courseName = getCourseName(lessonPage)
-        val lessonName = getLessonName(lessonPage)
-        val lessonDetails = getLessonDetails(lessonPage)
-        val pdfReferences = getPdfReferences(session, lessonPage)
-        val imageReferences = getImageReferences(lessonPage)
-        val videoReferences = getVideoReferences(lessonPage)
+        val coursePage = getCoursePage(session, courseUrl)
+        val courseName = getCourseName(coursePage)
+        val courseDetails = getCourseDetails(coursePage)
+        val lessons = getLessons(session, coursePage)
 
         val courseFolder = createFolderIfNotExists(File(destinationFolder, courseName))
-        val lessonFolder = createFolderIfNotExists(File(courseFolder, lessonName))
+        writeCourseDetails(courseDetails, destFolder = courseFolder)
 
-        writeLessonDetails(lessonDetails, destFolder = lessonFolder)
-        downloadPdfs(pdfReferences, destFolder = lessonFolder)
-        downloadImages(imageReferences, destFolder = lessonFolder)
-        downloadVideos(videoReferences, preferredResolution, destFolder = lessonFolder)
+        lessons.forEach { lesson ->
+            log.info("\n===== ${lesson.name} =====")
+            val lessonFolder = createFolderIfNotExists(File(courseFolder, lesson.name))
+            writeLessonDetails(lesson.details, destFolder = lessonFolder)
+            downloadPdfs(lesson.pdfReferences, destFolder = lessonFolder)
+            downloadImages(lesson.imageReferences, destFolder = lessonFolder)
+            downloadVideos(lesson.videoReferences, preferredResolution, destFolder = lessonFolder)
+        }
 
-        println("Finished")
+        log.info("========== Finished ==========")
     }
 
     private fun doLogin(): Connection {
@@ -63,28 +66,55 @@ class NMAScraper(
         return session
     }
 
-    private fun getLessonPage(session: Connection, lessonUrl: URL) = session.url(lessonUrl).get()
+    private fun getCoursePage(session: Connection, courseUrl: URL) = session.url(courseUrl).get()
 
-    private fun getCourseName(lessonPage: Document): String {
-        return lessonPage
+    private fun getCourseDetails(coursePage: Document): String {
+        return coursePage
             .body()
-            .selectFirst("#grayRectangle > div.col-full > div.nma_bread > div.bread-left > div > a")
-            ?.let { a ->
-                val link = a.attr("href")
-                val (name) = ".+/(?<name>.+)/".toRegex().find(link)?.destructured
-                    ?: throw IllegalStateException("Course name not found on page $lessonUrl")
-                name.normalizeToFolderName()
-            }
-            ?: throw IllegalStateException("Course name not found on page $lessonUrl")
+            .selectFirst("#inner-wrapper > div.lpb-container > div > div > div > p.learning-path-excerpt")
+            ?.text()
+            ?: throw IllegalStateException("Course Details not found on page ${coursePage.baseUri()}")
     }
 
-    private fun getLessonName(lessonPage: Document): String {
-        return lessonPage
+    private fun getLessons(session: Connection, coursePage: Document): List<Lesson> {
+        return getLessonReferences(coursePage).map { lesson ->
+            val lessonPage = getLessonPage(session, lesson.url)
+            val lessonName = lesson.name
+            val lessonDetails = getLessonDetails(lessonPage)
+            val pdfReferences = getPdfReferences(session, lessonPage)
+            val imageReferences = getImageReferences(lessonPage)
+            val videoReferences = getVideoReferences(lessonPage)
+            Lesson(lessonName, lessonDetails, pdfReferences, imageReferences, videoReferences)
+        }
+    }
+
+    private fun getLessonReferences(coursePage: Document): List<LessonReference> {
+        return coursePage
             .body()
-            .selectFirst("#grayRectangle > div.col-full > div.nma_bread > div.bread-left > div > h1")
-            ?.text()
-            ?.normalizeToFolderName()
-            ?: throw IllegalStateException("Lesson name not found on page $lessonUrl")
+            .select("#post-items div.lesson-preview-content > h2.title > a")
+            .mapIndexed { i, a ->
+                val lessonIndex = i + 1
+                val title = a.attr("title")
+                    .normalizeToFolderName()
+                    .let { title ->
+                        if (title.startsWith("$lessonIndex")) title
+                        else "$lessonIndex $title"
+                    }
+                val link = a.attr("href")
+                LessonReference(title, URL(link))
+            }
+    }
+
+    private fun getLessonPage(session: Connection, lessonUrl: URL) = session.url(lessonUrl).get()
+
+    private fun getCourseName(coursePage: Document): String {
+        return coursePage
+            .body()
+            .selectFirst("#inner-wrapper > div.lpb-container > div > div > div > h1")
+            ?.let { h1 ->
+                h1.text().normalizeToFolderName().takeIf { it.isNotBlank() }
+            }
+            ?: throw IllegalStateException("Course name not found on page ${coursePage.baseUri()}")
     }
 
     private fun getLessonDetails(lessonPage: Document): String {
@@ -93,9 +123,8 @@ class NMAScraper(
             .selectFirst("#details .lessondesc")
             ?.getElementsByTag("p")
             ?.joinToString("\n") { p -> p.text() }
-            ?: throw IllegalStateException("Lesson Details not found on page $lessonUrl")
+            ?: throw IllegalStateException("Lesson Details not found on page ${lessonPage.baseUri()}")
     }
-
 
     private fun getImageReferences(lessonPage: Document): List<ImageReference> {
         return lessonPage
@@ -106,6 +135,7 @@ class NMAScraper(
                 ImageReference(URL(link))
             }
     }
+
 
     private fun getPdfViewerReferences(lessonPage: Document): List<PdfViewerReference> {
         return lessonPage
@@ -151,6 +181,10 @@ class NMAScraper(
         return folder
     }
 
+    private fun writeCourseDetails(courseDetails: String, destFolder: File) {
+        File(destFolder, COURSE_DETAILS_FILE_NAME).writeText(courseDetails, Charsets.UTF_8)
+    }
+
     private fun writeLessonDetails(lessonDetails: String, destFolder: File) {
         File(destFolder, LESSON_DETAILS_FILE_NAME).writeText(lessonDetails, Charsets.UTF_8)
     }
@@ -182,61 +216,50 @@ class NMAScraper(
     }
 
     private fun downloadPdfs(pdfReferences: List<PdfReference>, destFolder: File) {
-        println("== Start download pdfs ==")
+        log.info("== Start download pdfs ==")
         var errorCount = 0
 
         pdfReferences.forEach { pdf ->
             try {
                 pdf.url.openStreamToResource().use { input ->
                     Files.copy(input, File(destFolder, pdf.name).toPath(), REPLACE_EXISTING)
-                    println("${pdf.url} download done")
+                    log.info("${pdf.url} download done")
                 }
             } catch (ex: Exception) {
-                errPrintln("${pdf.url} download failed: ${ex.message}")
+                log.error("${pdf.url} download failed: ${ex.message}")
                 errorCount++
             }
         }
 
         when {
-            pdfReferences.isEmpty() -> println("It was not found pdfs to download")
-            errorCount == pdfReferences.size -> println("All pdf download failed")
-            errorCount > 0 -> println("Pdf download finished with errors")
-            else -> println("All pdfs downloaded")
+            pdfReferences.isEmpty() -> log.info("It was not found pdfs to download")
+            errorCount == pdfReferences.size -> log.info("All pdf download failed")
+            errorCount > 0 -> log.info("Pdf download finished with errors")
+            else -> log.info("All pdfs downloaded")
         }
     }
 
     private fun downloadImages(imageReferences: List<ImageReference>, destFolder: File) {
-        println("== Start download images ==")
+        log.info("== Start download images ==")
         var errorCount = 0
 
         imageReferences.forEach { image ->
             try {
                 image.url.openStreamToResource().use { input ->
                     Files.copy(input, File(destFolder, image.name).toPath(), REPLACE_EXISTING)
-                    println("${image.url} download done")
+                    log.info("${image.url} download done")
                 }
             } catch (ex: Exception) {
-                errPrintln("${image.url} download failed: ${ex.message}")
+                log.error("${image.url} download failed: ${ex.message}")
                 errorCount++
             }
         }
 
-//        imageReferences.forEach { image ->
-//            try {
-//                val imageFile = ImageIO.read(image.url)
-//                ImageIO.write(imageFile, image.format, File(destFolder, image.name.normalizeToFileName()))
-//                println("${image.url} download done")
-//            } catch (ex: Exception) {
-//                errPrintln("${image.url} download failed: ${ex.message}")
-//                errorCount++
-//            }
-//        }
-
         when {
-            imageReferences.isEmpty() -> println("It was not found images to download")
-            errorCount == imageReferences.size -> println("All images download failed")
-            errorCount > 0 -> println("Image download finished with errors")
-            else -> println("All images downloaded")
+            imageReferences.isEmpty() -> log.info("It was not found images to download")
+            errorCount == imageReferences.size -> log.info("All images download failed")
+            errorCount > 0 -> log.info("Image download finished with errors")
+            else -> log.info("All images downloaded")
         }
     }
 
@@ -245,7 +268,7 @@ class NMAScraper(
         preferredResolution: Resolution,
         destFolder: File,
     ) {
-        println("== Start download videos ==")
+        log.info("== Start download videos ==")
         var errorCount = 0
 
         videoReferences.forEachIndexed { i, video ->
@@ -258,11 +281,11 @@ class NMAScraper(
                     Files.copy(input,
                         File(destFolder, "$name.${videoSource.extension ?: "mp4"}").toPath(),
                         REPLACE_EXISTING)
-                    println("${videoSource.url} download done")
+                    log.info("${videoSource.url} download done")
                 }
             } catch (ex: Exception) {
                 errorCount++
-                errPrintln("${videoSource.url} download failed: ${ex.message}")
+                log.error("${videoSource.url} download failed: ${ex.message}")
             }
 
             maybeTrack?.let { track ->
@@ -271,26 +294,26 @@ class NMAScraper(
                         Files.copy(input,
                             File(destFolder, "$name.${track.extension ?: "vtt"}").toPath(),
                             REPLACE_EXISTING)
-                        println("${track.url} download done")
+                        log.info("${track.url} download done")
                     }
                 } catch (ex: Exception) {
-                    errPrintln("${track.url} download failed: ${ex.message}")
+                    log.info("${track.url} download failed: ${ex.message}")
                 }
             }
         }
 
         when {
-            videoReferences.isEmpty() -> println("It was not found videos to download")
-            errorCount == videoReferences.size -> println("All videos download failed")
-            errorCount > 0 -> println("Video download finished with errors")
-            else -> println("All videos downloaded")
+            videoReferences.isEmpty() -> log.info("It was not found videos to download")
+            errorCount == videoReferences.size -> log.info("All videos download failed")
+            errorCount > 0 -> log.info("Video download finished with errors")
+            else -> log.info("All videos downloaded")
         }
     }
 
     private fun URL.openStreamToResource(): InputStream {
         val urlConnection = this.openConnection() as HttpURLConnection
         urlConnection.setRequestProperty(ORIGIN_HEADER, ORIGIN_HTTP_ADDRESS)
-        urlConnection.setRequestProperty(REFERER_HEADER, lessonUrl.toString())
+        urlConnection.setRequestProperty(REFERER_HEADER, courseUrl.toString())
         urlConnection.doOutput = true
         urlConnection.doInput = true
         return urlConnection.inputStream
@@ -298,6 +321,8 @@ class NMAScraper(
 
     companion object {
         private const val LESSON_DETAILS_FILE_NAME = "lesson details.txt"
+        private const val COURSE_DETAILS_FILE_NAME = "course details.txt"
+
         private const val ORIGIN_HTTP_ADDRESS = "https://www.nma.art"
 
         private const val REFERER_HEADER = "Referer"

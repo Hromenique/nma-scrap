@@ -20,6 +20,7 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.14.3'
     implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.9.8'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.9.8'
+    implementation 'ch.qos.logback:logback-classic:1.2.3'
 }
 
 jar {

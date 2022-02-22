@@ -18,8 +18,8 @@ fun main() {
     println("Password:")
     val password = readLine() ?: ""
 
-    println("Lesson URL:")
-    val lessonUrl = readLine(errorMessage = "URL malformed, try again") { URL(it) }
+    println("Course URL:")
+    val courseUrl = readLine(errorMessage = "URL malformed, try again") { URL(it) }
 
     println("Preferred video resolution: SD, HD, FULL-HD (default is HD): ")
     val resolution = readOptions(
@@ -38,7 +38,7 @@ fun main() {
     NMAScraper(
         userName = username,
         password = password,
-        lessonUrl = lessonUrl,
+        courseUrl = courseUrl,
         destinationFolder = destinationFolder,
         preferredResolution = resolution
     ).doScrap()
