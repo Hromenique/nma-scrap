@@ -1,5 +1,6 @@
-package br.com.hrom.nmascrap
+package br.com.hrom.nmascrap.scraper
 
+import br.com.hrom.nmascrap.commons.fileName
 import java.net.URL
 
 private val REGEX_FILE_EXTENSION = ".+\\.(?<extension>.+)".toRegex()

@@ -1,4 +1,4 @@
-package br.com.hrom.nmascrap
+package br.com.hrom.nmascrap.scraper
 
 data class Lesson(
     val name: String,

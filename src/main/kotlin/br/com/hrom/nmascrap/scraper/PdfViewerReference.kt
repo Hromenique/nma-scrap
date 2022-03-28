@@ -1,4 +1,4 @@
-package br.com.hrom.nmascrap
+package br.com.hrom.nmascrap.scraper
 
 import java.net.URL
 

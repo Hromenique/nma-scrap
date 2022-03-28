@@ -1,4 +1,4 @@
-package br.com.hrom.nmascrap
+package br.com.hrom.nmascrap.commons
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
