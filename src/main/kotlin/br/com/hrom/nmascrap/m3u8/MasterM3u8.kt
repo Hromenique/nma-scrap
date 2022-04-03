@@ -9,11 +9,7 @@ class MasterM3u8(entries: List<MasterM3u8Entry>) {
         this.entries = entries.sortedBy { it.videoResolution }
     }
 
-    private fun getEntryWithResolution(resolution: Resolution): MasterM3u8Entry? {
+    fun getEntryWithResolutionOrDefault(resolution: Resolution): MasterM3u8Entry? {
         return this.entries.firstOrNull { it.videoResolution?.toResolution() == resolution } ?: this.entries.lastOrNull()
-    }
-
-    fun tryToGetPlaylistReaderToResolution(resolution: Resolution): M3u8PlayListReader? {
-        return getEntryWithResolution(resolution)?.let { M3u8PlayListReader(it) }
     }
 }

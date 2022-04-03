@@ -16,7 +16,7 @@ data class VideoReference(
     val sources: List<Source> = emptyList(),
     val tracks: List<Track> = emptyList()
 ) {
-    fun tryGetSourceWithResolution(resolution: Resolution): Source {
+    fun getSourceWithResolutionOrDefault(resolution: Resolution): Source {
         return sources.firstOrNull { it.resolution == resolution}
             ?: sources.firstOrNull()
             ?: throw IllegalStateException("There is no source video")

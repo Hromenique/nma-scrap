@@ -10,10 +10,14 @@ import java.net.URL
 
 fun main() {
     val sysProperties = System.getProperties();
-    // set this to allow to send http 'Origin' header to handle cross domain problems
+    // set this to allow sending http 'Origin' header to handle cross domain problems
     sysProperties.setProperty("sun.net.http.allowRestrictedHeaders", "true")
 
-    println("Welcome to NMA Scrap Application. Please provide the necessary information to continue...")
+    startScraper()
+}
+
+private fun startScraper() {
+    println("Welcome to NMA Scrap Application. Please, provide the necessary information to continue...")
 
     println("User Name:")
     val username = readLine() ?: ""
@@ -25,8 +29,9 @@ fun main() {
     val courseUrl = readLine(errorMessage = "URL malformed, try again") { URL(it) }
 
     println("Lesson number (default is all lessons)")
-    val lessonNumber: Int? = readLine(errorMessage = "value must be a positive number") { input ->
-        input.let { if (input.trim().isEmpty()) null else it }
+    val lessonNumber: Int? = readLine(errorMessage = "Value must be a positive number") { input ->
+        input
+            .let { if (input.trim().isEmpty()) null else it }
             ?.toInt()
             ?.let { if (it <= 0) throw IllegalArgumentException("value must be a positive number") else it }
     }

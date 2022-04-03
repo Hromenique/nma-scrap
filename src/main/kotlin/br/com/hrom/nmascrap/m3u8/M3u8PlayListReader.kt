@@ -20,8 +20,8 @@ class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
     }
 
     @Throws(IOException::class)
-    fun subtitleInputStream(): InputStream? {
-        return this.readSubtitlesUrl()?.openStreamToResource()
+    fun subtitleInputStream(): InputStream? = retryOnError {
+        this.readSubtitlesUrl()?.openStreamToResource()
     }
 
     @Throws(IOException::class)
@@ -32,19 +32,19 @@ class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
         val tsSegmentFileAsString = retryOnError {
             masterM3u8Entry.audioFileURL.openStreamToResource().use { String(it.readAllBytes()) }
         }
+
         return extractAllTsFilesSegments(tsSegmentFileAsString).map { baseAudioUri.resolve(it).toURL() }
     }
 
     @Throws(IOException::class)
     fun audioInputStream(): InputStream {
         val audioStreamUrls = this.readAudioStreamUrls()
-        var bytes = byteArrayOf()
+        var allBytes = byteArrayOf()
         audioStreamUrls.forEach { audioUrl ->
-            retryOnError { audioUrl.openStreamToResource() }.use { input ->
-                bytes += input.readAllBytes()
-            }
+            val bytes = retryOnError { audioUrl.openStreamToResource().use { it.readAllBytes() } }
+            allBytes += bytes
         }
-        return bytes.inputStream()
+        return allBytes.inputStream()
     }
 
     @Throws(IOException::class)
@@ -59,13 +59,12 @@ class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
     @Throws(IOException::class)
     fun videoInputStream(): InputStream {
         val videoStreamUrls = this.readVideoStreamUrls()
-        var bytes = byteArrayOf()
+        var allBytes = byteArrayOf()
         videoStreamUrls.forEach { videoUrl ->
-            retryOnError { videoUrl.openStreamToResource() }.use { input ->
-                bytes += input.readAllBytes()
-            }
+            val bytes = retryOnError { videoUrl.openStreamToResource().use { it.readAllBytes() } }
+            allBytes += bytes
         }
-        return bytes.inputStream()
+        return allBytes.inputStream()
     }
 
     private fun extractSubtitleSegment(content: String): String? {

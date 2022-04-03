@@ -7,7 +7,6 @@ import br.com.hrom.nmascrap.commons.retryOnError
 import br.com.hrom.nmascrap.m3u8.MasterM3u8Resolver
 import br.com.hrom.nmascrap.mp4.Mp4Creator
 import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Connection
 import org.jsoup.Jsoup
@@ -29,8 +28,13 @@ class NMAScraper(
     private val destinationFolder: File
 ) {
     private val log = LoggerFactory.getLogger("Scraper")
+
     private val mp4Creator = Mp4Creator.getInstance()
-    private val objectMapper: ObjectMapper = jacksonObjectMapper()
+    private val objectMapper = jacksonObjectMapper()
+    private val masterM3u8Resolver = MasterM3u8Resolver()
+    private val lessonIndex = this.lessonNumber
+        ?.let { if (it <= 0) null else it }
+        ?.let { it - 1 } // indexes start always in zero, although lesson numbers start in one
 
     fun doScrap() {
         log.info("============== Start NMA scrap ==============")
@@ -56,7 +60,7 @@ class NMAScraper(
             downloadVideos(lesson.videoReferences, preferredResolution, destFolder = lessonFolder)
         }
 
-        log.info("========== Finished ==========")
+        log.info("============== Finished ==============")
     }
 
     private fun doLogin(): Connection = retryOnError {
@@ -88,28 +92,21 @@ class NMAScraper(
 
     private fun getLessons(session: Connection, coursePage: Document): List<Lesson> {
         var lessonReferences = getLessonReferences(coursePage)
-        val lessonIndex = getLessonIndex()
 
         if (lessonIndex != null && lessonIndex < lessonReferences.size) {
             lessonReferences = lessonReferences.subList(lessonIndex, lessonIndex + 1)
         }
 
         return lessonReferences
-            .map { lesson ->
-                val lessonPage = getLessonPage(session, lesson.url)
-                val lessonName = lesson.name
+            .map { lessonRef ->
+                val lessonPage = getLessonPage(session, lessonRef.url)
+                val lessonName = lessonRef.name
                 val lessonDetails = getLessonDetails(lessonPage)
                 val pdfReferences = getPdfReferences(session, lessonPage)
                 val imageReferences = getImageReferences(lessonPage)
                 val videoReferences = getVideoReferences(lessonPage)
                 Lesson(lessonName, lessonDetails, pdfReferences, imageReferences, videoReferences)
             }
-    }
-
-    private fun getLessonIndex(): Int? {
-        return this.lessonNumber
-            ?.let { if (it <= 0) null else it }
-            ?.let { it - 1 } // indexes start always in zero, although lesson numbers start in one
     }
 
     private fun getLessonReferences(coursePage: Document): List<LessonReference> {
@@ -129,7 +126,7 @@ class NMAScraper(
             }
     }
 
-    private fun getLessonPage(session: Connection, lessonUrl: URL) = session.url(lessonUrl).get()
+    private fun getLessonPage(session: Connection, lessonUrl: URL) = retryOnError { session.url(lessonUrl).get() }
 
     private fun getCourseName(coursePage: Document): String {
         return coursePage
@@ -160,7 +157,6 @@ class NMAScraper(
             }
     }
 
-
     private fun getPdfViewerReferences(lessonPage: Document): List<PdfViewerReference> {
         return lessonPage
             .body()
@@ -170,8 +166,8 @@ class NMAScraper(
 
     private fun getPdfReferences(session: Connection, lessonPage: Document): List<PdfReference> {
         return getPdfViewerReferences(lessonPage)
-            .map { pdfViewerReference -> getPdfViewerPage(session, pdfViewerReference) }
-            .map { page -> getPdfUrl(page) }
+            .map { pdfViewerRef -> getPdfViewerPage(session, pdfViewerRef) }
+            .map { pdfViewerPage -> getPdfUrl(pdfViewerPage) }
             .map { url -> PdfReference(url) }
     }
 
@@ -213,8 +209,8 @@ class NMAScraper(
         File(destFolder, LESSON_DETAILS_FILE_NAME).writeText(lessonDetails, Charsets.UTF_8)
     }
 
-    private fun getPdfViewerPage(session: Connection, pdfViewerReference: PdfViewerReference): Document {
-        return session
+    private fun getPdfViewerPage(session: Connection, pdfViewerReference: PdfViewerReference) = retryOnError {
+        session
             .header(ORIGIN_HEADER, ORIGIN_HTTP_ADDRESS)
             .url(pdfViewerReference.url)
             .get()
@@ -250,9 +246,9 @@ class NMAScraper(
                         Files.copy(input, File(destFolder, pdf.name).toPath(), REPLACE_EXISTING)
                     }
                 }
-                log.info("${pdf.url} download done")
+                log.info("${pdf.name} download done (${pdf.url})")
             } catch (ex: Exception) {
-                log.error("${pdf.url} download failed: ${ex.message}")
+                log.error("${pdf.name} download failed (${pdf.url}): ${ex.message}", ex)
                 errorCount++
             }
         }
@@ -276,9 +272,9 @@ class NMAScraper(
                         Files.copy(input, File(destFolder, image.name).toPath(), REPLACE_EXISTING)
                     }
                 }
-                log.info("${image.url} download done")
+                log.info("${image.name} download done (${image.url})")
             } catch (ex: Exception) {
-                log.error("${image.url} download failed: ${ex.message}")
+                log.error("${image.name} download failed (${image.url}): ${ex.message}", ex)
                 errorCount++
             }
         }
@@ -300,20 +296,18 @@ class NMAScraper(
         var errorCount = 0
 
         videoReferences.forEachIndexed { i, video ->
-            val videoSource = video.tryGetSourceWithResolution(preferredResolution)
+            val videoSource = video.getSourceWithResolutionOrDefault(preferredResolution)
             val maybeSubtitle = video.tracks.firstOrNull()
-            val name = "${i + 1} ${video.title.normalizeToFileName()}"
+            val videoTitle = "${i + 1} ${video.title.normalizeToFileName()}"
 
             try {
-                // is it m3u8?
-                if (videoSource.extension?.toLowerCase()?.contains("m3u8") == true) {
-                    handleM3U8Download(videoSource, name, destFolder)
+                if (isM3u8File(videoSource)) {
+                    handleM3u8Download(videoSource, videoTitle, destFolder)
                 } else {
-                    handleVideoDownload(videoSource, maybeSubtitle, name, destFolder)
+                    handleVideoDownload(videoSource, maybeSubtitle, videoTitle, destFolder)
                 }
             } catch (ex: Exception) {
                 errorCount++
-                log.error("${videoSource.url} download failed: ${ex.message}", ex)
             }
         }
 
@@ -325,17 +319,24 @@ class NMAScraper(
         }
     }
 
-    private fun handleVideoDownload(videoSource: Source, subtitle: Track? = null, name: String, destFolder: File) {
-        retryOnError {
-            videoSource.url.openStreamToResource().use { input ->
-                Files.copy(
-                    input,
-                    File(destFolder, "$name.${videoSource.extension ?: "mp4"}").toPath(),
-                    REPLACE_EXISTING
-                )
+    private fun isM3u8File(videoSource: Source) = videoSource.extension?.toLowerCase()?.contains("m3u8") == true
+
+    private fun handleVideoDownload(videoSource: Source, subtitle: Track? = null, title: String, destFolder: File) {
+        try {
+            retryOnError {
+                videoSource.url.openStreamToResource().use { input ->
+                    Files.copy(
+                        input,
+                        File(destFolder, "$title.${videoSource.extension ?: "mp4"}").toPath(),
+                        REPLACE_EXISTING
+                    )
+                }
             }
+            log.info("$title video download done (${videoSource.url})")
+        } catch (ex: Exception) {
+            log.error("$title video download failed (${videoSource.url}): ${ex.message}", ex)
+            throw ex;
         }
-        log.info("${videoSource.url} download done")
 
         if (subtitle == null) return
         try {
@@ -343,48 +344,58 @@ class NMAScraper(
                 subtitle.url.openStreamToResource().use { input ->
                     Files.copy(
                         input,
-                        File(destFolder, "$name.${subtitle.extension ?: "vtt"}").toPath(),
+                        File(destFolder, "$title.${subtitle.extension ?: "vtt"}").toPath(),
                         REPLACE_EXISTING
                     )
                 }
             }
-            log.info("${subtitle.url} download done")
+            log.info("$title subtitle download done (${subtitle.url})")
         } catch (ex: Exception) {
-            log.info("${subtitle.url} download failed: ${ex.message}")
+            log.error("$title subtitle download failed: ${ex.message}")
         }
     }
 
-    private fun handleM3U8Download(videoSource: Source, name: String, destFolder: File) {
-        val masterM3u8FileContent =
-            retryOnError { videoSource.url.openStreamToResource().use { String(it.readAllBytes()) } }
+    private fun handleM3u8Download(videoSource: Source, title: String, destFolder: File) {
+        try {
+            handleM3u8(videoSource, title, destFolder)
+        } catch (ex: Exception) {
+            log.error("$title m3u8 file failed: ${ex.message}", ex)
+        }
+    }
 
-        val m3u8PlayListReader = MasterM3u8Resolver()
+    private fun handleM3u8(videoSource: Source, title: String, destFolder: File) {
+        val masterM3u8FileContent = retryOnError {
+            videoSource.url.openStreamToResource().use { String(it.readAllBytes()) }
+        }
+
+        val m3u8PlayListReader = masterM3u8Resolver
             .resolve(masterM3u8FileContent)
-            .tryToGetPlaylistReaderToResolution(preferredResolution)
+            .getEntryWithResolutionOrDefault(preferredResolution)
+            ?.toReader()
             ?: throw IllegalStateException("There is no m3u8 file content to read")
 
         retryOnError {
             m3u8PlayListReader.subtitleInputStream().use { input ->
                 if (input != null) {
-                    Files.copy(input, File(destFolder, "${name}.vtt").toPath(), REPLACE_EXISTING)
-                    log.info("$name subtitle downloaded")
+                    Files.copy(input, File(destFolder, "${title}.vtt").toPath(), REPLACE_EXISTING)
+                    log.info("$title subtitle download done")
                 }
             }
         }
 
-        val allInOneAudiosFile = File(destFolder, "${name}_audio.ts")
+        val allInOneAudiosFile = File(destFolder, "${title}_audio.ts")
         retryOnError {
             m3u8PlayListReader.audioInputStream().use { input ->
                 Files.copy(input, allInOneAudiosFile.toPath(), REPLACE_EXISTING)
-                log.info("$name m3u8 audio downloaded")
+                log.info("$title m3u8 audio download done")
             }
         }
 
-        val allInOneVideosFile = File(destFolder, "${name}_video.ts")
+        val allInOneVideosFile = File(destFolder, "${title}_video.ts")
         retryOnError {
             m3u8PlayListReader.videoInputStream().use { input ->
                 Files.copy(input, allInOneVideosFile.toPath(), REPLACE_EXISTING)
-                log.info("$name m3u8 video downloaded")
+                log.info("$title m3u8 video download done")
             }
         }
 
@@ -393,10 +404,10 @@ class NMAScraper(
             mp4Creator.create(
                 videoSourceFile = allInOneVideosFile,
                 audioSourceFile = allInOneAudiosFile,
-                destMp4FilePath = File(destFolder, "$name.mp4").toPath()
+                destMp4FilePath = File(destFolder, "$title.mp4").toPath()
             )
         }
-        log.info("$mp4File was created")
+        log.info("$title mp4 video created: $mp4File")
     }
 
     private fun URL.openStreamToResource(): InputStream {
