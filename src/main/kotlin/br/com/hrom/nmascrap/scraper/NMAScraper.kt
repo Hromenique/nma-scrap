@@ -407,6 +407,11 @@ class NMAScraper(
                 destMp4FilePath = File(destFolder, "$title.mp4").toPath()
             )
         }
+
+        // purge source files
+        retryOnError { allInOneAudiosFile.delete() }
+        retryOnError { allInOneVideosFile.delete() }
+
         log.info("$title mp4 video created: $mp4File")
     }
 
