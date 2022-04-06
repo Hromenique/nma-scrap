@@ -9,6 +9,6 @@ data class MasterM3u8Entry(
     val videoResolution: VideoResolution?
 ) {
 
-    fun toReader() = M3u8PlayListReader(this)
+    fun toReader() = M3u8PlayListsReader(this)
 
 }

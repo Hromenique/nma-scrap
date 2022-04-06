@@ -7,7 +7,7 @@ import java.io.InputStream
 import java.net.URL
 import kotlin.jvm.Throws
 
-class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
+class M3u8PlayListsReader(private val masterM3u8Entry: MasterM3u8Entry) {
 
     @Throws(IOException::class)
     fun readSubtitlesUrl(): URL? {
@@ -38,13 +38,7 @@ class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
 
     @Throws(IOException::class)
     fun audioInputStream(): InputStream {
-        val audioStreamUrls = this.readAudioStreamUrls()
-        var allBytes = byteArrayOf()
-        audioStreamUrls.forEach { audioUrl ->
-            val bytes = retryOnError { audioUrl.openStreamToResource().use { it.readAllBytes() } }
-            allBytes += bytes
-        }
-        return allBytes.inputStream()
+        return UrlPlaylistInputStream(readAudioStreamUrls())
     }
 
     @Throws(IOException::class)
@@ -58,13 +52,7 @@ class M3u8PlayListReader(private val masterM3u8Entry: MasterM3u8Entry) {
 
     @Throws(IOException::class)
     fun videoInputStream(): InputStream {
-        val videoStreamUrls = this.readVideoStreamUrls()
-        var allBytes = byteArrayOf()
-        videoStreamUrls.forEach { videoUrl ->
-            val bytes = retryOnError { videoUrl.openStreamToResource().use { it.readAllBytes() } }
-            allBytes += bytes
-        }
-        return allBytes.inputStream()
+        return UrlPlaylistInputStream(readVideoStreamUrls())
     }
 
     private fun extractSubtitleSegment(content: String): String? {

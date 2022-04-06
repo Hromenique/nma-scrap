@@ -351,7 +351,7 @@ class NMAScraper(
             }
             log.info("$title subtitle download done (${subtitle.url})")
         } catch (ex: Exception) {
-            log.error("$title subtitle download failed: ${ex.message}")
+            log.error("$title subtitle download failed: ${ex.message}", ex)
         }
     }
 
